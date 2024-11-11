@@ -184,6 +184,101 @@ Its just finding daily min and max prices by resampling it to D to get the idea 
 ```python
 daily_min_price = df['Day Ahead Price hourly [in EUR/MWh]'].resample('D').min()
 daily_max_price = df['Day Ahead Price hourly [in EUR/MWh]'].resample('D').max()
+```
+# TASK 2.7
+I used Xgboost and feature engineering to predict yearly performance having 100 MW position. By adding features like time of day, renewable forecasts, and recent price trends, we help the model learn what influences price changes. This additional context makes predictions more accurate and supports better decision-making for the trading strategy. I created features like separate wind and pv da and id forecast bcz it would yield me more precise results instead of using only total RE forecast. I also included imbalance price feature bcz it impacts the price based on supply and demand and crucial for trading. At first i used hourly price difference but as we use more data and less time interval it improved result, so i added 15 min IA and DA price diff in addition to hourly. lagged features and rolling avgs are crucial in time series modelling to get better idea how previous day price affects next day and how prices are behaving in rolling window averages to capture trend and volatility. Then i defined X and Y variable and Y is what we want to predict, i.e the profit difference between day ahead and intraday diff. Rest all defined feature went to X variables. Next step was testing and training data as i choose 80 perecent data to train and test on 20% for 2021. We also used descion trees to train the model. We predict values and see how much mean squared or absolute error do we have. squared will show us big changes or volatility errors while absolute will show small. mine was 1.89 and 48. Too get more realistic results, i added transaction fee etc. 
+# Strategy
+in line 235, i made a trading strategy that takes a long position (100 MW) if the predicted intraday price is significantly higher than the day-ahead price, covering transaction costs, or a short position (-100 MW) if the predicted intraday price is much lower. If the price difference isn’t large enough to cover costs, it holds (0). This approach aims to capture profits from meaningful price changes while avoiding small, unprofitable trades.
+# Results
+It gave me 29988931.13 EUR profit for 2021 that is i guess very unrealistic. This is due to alot of factors. I was assuming trading 100MW at once. This model ignores the how 100MW instant buy or sell gonna impact the market and price. may be we can use less volumes that i was not sure to do or not. The model assumes every trade can be executed precisely at the predicted prices, without delays or partial execution issues, which rarely happens in actual markets. We can try more machine learning modells, infact i tried linear regression and LSTM but i guess we really have limited data also, i think to get real life forecats, we could use nueral network models or add more variables like weather data forecast, price spreads, demand forecast or fuel prices which would yield us much better results. 
+# Additional comparison
+At the end, for my own understanding, i just did comparision between actual DA and ID price diff and my predicted DA and ID diff. Everything was great until last months of the year which gave me idea that it is not capturing last 3 months forecast volatility well. it might also be due to the fact the the data you provided was also forecats, so it is not real. and machine learning models do not train well at end of data i guess. this is also whre profits started getting too much bigger.(I would be a millionaire xD). Anyways it was very nice experience for me and i learnt alot from it. Thank you for giving me opportunity to solve it. 
+```python
+df['Hour'] = df.index.hour
+df['DayOfWeek'] = df.index.dayofweek
+df['Wind_DA_Forecast'] = df['Wind Day Ahead Forecast [in MW]']
+df['PV_DA_Forecast'] = df['PV Day Ahead Forecast [in MW]']
+df['Wind_ID_Forecast'] = df['Wind Intraday Forecast [in MW]']
+df['PV_ID_Forecast'] = df['PV Intraday Forecast [in MW]']
+df['Total_Renewable_Forecast'] = df['Wind_DA_Forecast'] + df['PV_DA_Forecast']
+df['Imbalance_Price'] = df['Imbalance Price Quarter Hourly  [in EUR/MWh]']
+df['ID_15min_Price'] = df['Intraday Price Price Quarter Hourly  [in EUR/MWh]']
+df['ID_1hr_Price'] = df['Intraday Price Hourly  [in EUR/MWh]']
+df['DA_ID_1hr_Price_Diff'] = df['ID_1hr_Price'] - df['Day Ahead Price hourly [in EUR/MWh]']
+df['ID_1hr_15min_Price_Diff'] = df['ID_1hr_Price'] - df['ID_15min_Price']
+df['Prev_DA_Price'] = df['Day Ahead Price hourly [in EUR/MWh]'].shift(1)
+df['Prev_ID_1hr_Price'] = df['ID_1hr_Price'].shift(1)
+df['Prev_Imbalance_Price'] = df['Imbalance_Price'].shift(1)
+df['DA_Price_Rolling_Avg'] = df['Day Ahead Price hourly [in EUR/MWh]'].rolling(window=3).mean()
+df['ID_1hr_Price_Rolling_Avg'] = df['ID_1hr_Price'].rolling(window=3).mean()
+df['Imbalance_Price_Rolling_Avg'] = df['Imbalance_Price'].rolling(window=3).mean()
+df['DA_Price_Rolling_Std'] = df['Day Ahead Price hourly [in EUR/MWh]'].rolling(window=3).std()
+
+df.dropna(inplace=True)
+
+features = [
+    'Hour', 'DayOfWeek', 'Wind_DA_Forecast', 'PV_DA_Forecast', 'Wind_ID_Forecast', 'PV_ID_Forecast',
+    'Total_Renewable_Forecast', 'Imbalance_Price', 'DA_ID_1hr_Price_Diff', 'ID_1hr_15min_Price_Diff',
+    'Prev_DA_Price', 'Prev_ID_1hr_Price', 'Prev_Imbalance_Price',
+    'DA_Price_Rolling_Avg', 'ID_1hr_Price_Rolling_Avg', 'Imbalance_Price_Rolling_Avg', 'DA_Price_Rolling_Std'
+]
+X = df[features]
+y = df['DA_ID_1hr_Price_Diff']  
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+model = XGBRegressor(objective='reg:squarederror', n_estimators=100, learning_rate=0.1)
+model.fit(X_train, y_train)
+
+y_pred = model.predict(X_test)
+mse = mean_squared_error(y_test, y_pred)
+mae = mean_absolute_error(y_test, y_pred)
+print(f"Mean Squared Error (MSE): {mse:.2f}")
+print(f"Mean Absolute Error (MAE): {mae:.2f}")
+df['Predicted_Price_Diff'] = model.predict(X)
+
+transaction_cost = 1.5  # EUR/MWh
+df['Position'] = np.where(df['Predicted_Price_Diff'] > 2 + transaction_cost, 100,  # Go long (buy DA, sell ID)
+                          np.where(df['Predicted_Price_Diff'] < -2 - transaction_cost, -100, 0))  # Go short (sell DA, buy ID)
+
+df['Adjusted_Daily_Profit'] = df['Position'] * (df['DA_ID_1hr_Price_Diff'] - transaction_cost * np.sign(df['Position']))
+df['Adjusted_Cumulative_Profit'] = df['Adjusted_Daily_Profit'].cumsum()
+
+plt.figure(figsize=(10, 5))
+plt.plot(df['Adjusted_Cumulative_Profit'], label='Adjusted Cumulative Profit')
+plt.xlabel('Date')
+plt.ylabel('Adjusted Cumulative Profit (EUR)')
+plt.title('Adjusted Cumulative Performance of the Trading Strategy (100 MW Position)')
+plt.legend()
+plt.grid()
+plt.tight_layout()
+plt.show()
+
+adjusted_total_profit = df['Adjusted_Cumulative_Profit'].iloc[-1]
+print(f"Total adjusted cumulative profit for the advanced strategy in 2021: {adjusted_total_profit:.2f} EUR")
+
+# Additional Analysis: Compare Actual vs Predicted Price Differences
+df['Prediction_Error'] = df['DA_ID_1hr_Price_Diff'] - df['Predicted_Price_Diff']
+
+plt.figure(figsize=(10, 5))
+plt.plot(df.index, df['DA_ID_1hr_Price_Diff'], label='Actual Price Difference', color='blue')
+plt.plot(df.index, df['Predicted_Price_Diff'], label='Predicted Price Difference', color='orange')
+plt.xlabel('Date')
+plt.ylabel('Price Difference (EUR/MWh)')
+plt.title('Actual vs Predicted Price Difference (Day-Ahead - Intraday Hourly)')
+plt.legend()
+plt.grid()
+plt.tight_layout()
+plt.show()
+
+plt.figure(figsize=(10, 5))
+plt.plot(df.index, df['Prediction_Error'], label='Prediction Error', color='red')
+plt.axhline(0, color='black', linestyle='--', linewidth=0.7)
+plt.xlabel('Date')
+plt.ylabel('Prediction Error (EUR/MWh)')
+plt.title('Prediction Error Over Time')
+plt.legend()
+plt.grid()
+plt.tight_layout()
+plt.show()
 
 daily_revenue = daily_max_price - daily_min_price
 total_revenue = daily_revenue.sum()
