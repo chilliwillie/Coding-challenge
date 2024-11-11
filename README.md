@@ -1,4 +1,5 @@
 # Coding-challenge
+```python
 import requests
 import sqlite3
 import pandas as pd
@@ -19,7 +20,7 @@ def load_data():
     # Connect to the SQLite database and load the table into a DataFrame
     with sqlite3.connect(DB_PATH) as conn:
         data = pd.read_sql_query(f'SELECT * FROM "{TABLE_NAME}"', conn)
-    return data
+    return data```
 
 download_db()
 data = load_data()
