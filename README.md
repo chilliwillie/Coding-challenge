@@ -223,7 +223,7 @@ features = [
     'DA_Price_Rolling_Avg', 'ID_1hr_Price_Rolling_Avg', 'Imbalance_Price_Rolling_Avg', 'DA_Price_Rolling_Std'
 ]
 X = df[features]
-y = df['DA_ID_1hr_Price_Diff']  
+y = df['DA_ID_1hr_Price_Diff']
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
 model = XGBRegressor(objective='reg:squarederror', n_estimators=100, learning_rate=0.1)
 model.fit(X_train, y_train)
@@ -233,27 +233,29 @@ mse = mean_squared_error(y_test, y_pred)
 mae = mean_absolute_error(y_test, y_pred)
 print(f"Mean Squared Error (MSE): {mse:.2f}")
 print(f"Mean Absolute Error (MAE): {mae:.2f}")
+
+
 df['Predicted_Price_Diff'] = model.predict(X)
+transaction_cost = 1.5
 
-transaction_cost = 1.5  # EUR/MWh
-df['Position'] = np.where(df['Predicted_Price_Diff'] > 2 + transaction_cost, 100,  # Go long (buy DA, sell ID)
-                          np.where(df['Predicted_Price_Diff'] < -2 - transaction_cost, -100, 0))  # Go short (sell DA, buy ID)
+df['Position'] = np.where(df['Predicted_Price_Diff'] > 2 + transaction_cost, 100,  
+                          np.where(df['Predicted_Price_Diff'] < -2 - transaction_cost, -100, 0))  
 
-df['Adjusted_Daily_Profit'] = df['Position'] * (df['DA_ID_1hr_Price_Diff'] - transaction_cost * np.sign(df['Position']))
-df['Adjusted_Cumulative_Profit'] = df['Adjusted_Daily_Profit'].cumsum()
+df['Daily_Profit'] = df['Position'] * (df['DA_ID_1hr_Price_Diff'] - transaction_cost * np.sign(df['Position']))
+df['Cumulative_Profit'] = df['Daily_Profit'].cumsum()
 
 plt.figure(figsize=(10, 5))
-plt.plot(df['Adjusted_Cumulative_Profit'], label='Adjusted Cumulative Profit')
+plt.plot(df['Cumulative_Profit'], label='Cumulative Profit')
 plt.xlabel('Date')
-plt.ylabel('Adjusted Cumulative Profit (EUR)')
-plt.title('Adjusted Cumulative Performance of the Trading Strategy (100 MW Position)')
+plt.ylabel('Cumulative Profit (EUR)')
+plt.title('Cumulative Performance of the Trading Strategy (100 MW Position)')
 plt.legend()
 plt.grid()
 plt.tight_layout()
 plt.show()
 
-adjusted_total_profit = df['Adjusted_Cumulative_Profit'].iloc[-1]
-print(f"Total adjusted cumulative profit for the advanced strategy in 2021: {adjusted_total_profit:.2f} EUR")
+total_profit = df['Cumulative_Profit'].iloc[-1]
+print(f"Total cumulative profit for the advanced strategy in 2021: {total_profit:.2f} EUR")
 
 # Additional Analysis: Compare Actual vs Predicted Price Differences
 df['Prediction_Error'] = df['DA_ID_1hr_Price_Diff'] - df['Predicted_Price_Diff']
@@ -279,8 +281,4 @@ plt.legend()
 plt.grid()
 plt.tight_layout()
 plt.show()
-
-daily_revenue = daily_max_price - daily_min_price
-total_revenue = daily_revenue.sum()
-print(f"Total revenue for the battery in 2021: {total_revenue:.2f} EUR")
 ```
